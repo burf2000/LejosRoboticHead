@@ -1,12 +1,13 @@
 
+import java.io.IOException;
 import java.net.Socket;
-
-import com.sun.speech.freetts.Voice;
-import com.sun.speech.freetts.VoiceManager;
+import java.net.UnknownHostException;
+import java.nio.charset.Charset;
 
 import lejos.hardware.Brick;
 import lejos.hardware.BrickFinder;
 import lejos.hardware.Button;
+import lejos.hardware.Sound;
 import lejos.hardware.device.NXTCam;
 import lejos.hardware.lcd.LCD;
 import lejos.hardware.motor.EV3LargeRegulatedMotor;
@@ -35,14 +36,18 @@ public class Main {
 	private static boolean rangPhone = false;
 	
 	private static final int PORT = 5678;
-	private static final String IP = "10.0.1.11";
+	private static final String IP = "10.0.1.12";
 	
 	private static NXTCam camera;
-	final static int INTERVAL = 300; // milliseconds
+	final static int INTERVAL = 500; // milliseconds
 	static String objects = "Objects: ";
 	static int numObjects;
 	
 	static boolean found = false;
+	
+	private static int lastColour = 0;
+	private static int currentColour = 0;
+	private static int TURNING_LIMIT = 330;
 	
 	public static void main(String[] args) {
 		
@@ -62,12 +67,12 @@ public class Main {
 		//jawMotor.flt();
 		jawMotor.resetTachoCount();
 		jawMotor.setSpeed(7200);
-		jawMotor.rotateTo(-100, true);
+		//jawMotor.rotateTo(-100, true);
 		
 		turningMotor =  new EV3LargeRegulatedMotor(brick.getPort("A"));
 		turningMotor.flt();
 		turningMotor.resetTachoCount();
-		turningMotor.setSpeed(5000); //7200
+		turningMotor.setSpeed(500); //7200
 		
 		colourSensor = new EV3ColorSensor(brick.getPort("S2"));
 		colourSensor.setFloodlight(Color.BLUE);
@@ -79,31 +84,32 @@ public class Main {
 		
 		float[] touchStartSample = new float[touchStart.sampleSize()];
 		
+		sockets();
+		//sendColor(1);
+		sayText("Hello, show me a ball");
+		Sound.systemSound(true, Sound.ASCENDING);
+		
 		Delay.msDelay(1000);
 		
 		//turningMotor.rotateTo(360); // left
 		//turningMotor.rotateTo(0);
 		
-		 String text = "FreeTTS was written by the Sun Microsystems Laboratories "
-				    + "Speech Team and is based on CMU's Flite engine.";
-		 Voice voice;
-		  VoiceManager voiceManager = VoiceManager.getInstance();
-//		  voice = voiceManager.getVoice("kevin");
-//		  voice.allocate();
-//		  voice.speak(text);
+		//turningMotor.rotateTo(360);
+		//turningMotor.rotateTo(0);
 		
 		while (true)
 		{
-			//showObjects();
+			showObjects();
+			//moveJaw();
 			
 			if (Button.ESCAPE.isDown() )
 			{
-//				try {
-//					s.close();
-//				} catch (IOException e) {
-//					// TODO Auto-generated catch block
-//					e.printStackTrace();
-//				}
+				try {
+					s.close();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
 				return;
 			}
 
@@ -112,6 +118,24 @@ public class Main {
 		
 		//upMotor.rotateTo(-7200); // down
 		//upMotor.rotateTo(0); // up
+	}
+	
+	static void sayText(String string)
+	{
+	    //byte[] b = string.getBytes();
+	    byte[] b = string.getBytes(Charset.forName("UTF-8"));
+	    
+		try {
+			s.getOutputStream().write(b);
+			s.getOutputStream().flush();
+			s.getOutputStream().write(0);
+			s.getOutputStream().flush();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		Delay.msDelay(1000);
 	}
 	
 	static void showObjects()
@@ -128,8 +152,6 @@ public class Main {
 				Rectangle2D r = camera.getRectangle(i);
 				if (r.getHeight() > 5 && r.getWidth() > 5) {
 					
-				
-					
 					LCD.drawInt(camera.getObjectColor(i), 3, 0, 3+i);
 					LCD.drawInt((int) r.getWidth(), 3, 4, 3+i);
 					LCD.drawInt((int) r.getHeight(), 3, 8, 3+i);
@@ -140,10 +162,15 @@ public class Main {
 					if (camera.getObjectColor(0) == 1)
 					{
 						colourSensor.setFloodlight(Color.RED);
+						
+						currentColour = 1;
+						
 					}
 					else if (camera.getObjectColor(0) == 2)
 					{
 						colourSensor.setFloodlight(Color.BLUE);
+						
+						currentColour = 2;
 					}
 					
 					if ( r.getCenterY() < 40 ) //upMotor.getTachoCount() > -7200  &&
@@ -166,14 +193,14 @@ public class Main {
 						found = true;
 					}
 					
-					if ( r.getCenterX() < 60 ) //upMotor.getTachoCount() > -7200  &&
+					if ( r.getCenterX() < 60 && turningMotor.getTachoCount() > -TURNING_LIMIT) //upMotor.getTachoCount() > -7200  &&
 					{
 						turningMotor.rotate(-36, true);
 						//upMotor.backward();
 						System.out.println("right");
 						found = false;
 					}
-					else if (r.getCenterX() > 95) //upMotor.getTachoCount() < 0 &&
+					else if (r.getCenterX() > 95  && turningMotor.getTachoCount() < TURNING_LIMIT) //upMotor.getTachoCount() < 0 &&
 					{
 						//upMotor.forward();
 						turningMotor.rotate(36 , true);
@@ -187,7 +214,24 @@ public class Main {
 					
 					if (found == true)
 					{
-						moveJaw();
+						
+						
+						if (lastColour != 1 && currentColour == 1)
+						{
+							moveJaw();
+							lastColour = 1;
+							sayText("This is a red ball");
+							moveJaw();
+
+							
+						}
+						else if (lastColour != 2 && currentColour == 2)
+						{
+							moveJaw();
+							lastColour = 2;
+							sayText("This is a blue ball");
+							moveJaw();
+						}
 					}
 					
 //					if (upMotor.getTachoCount() < 1 && upMotor.getTachoCount() > -7200)
@@ -214,7 +258,10 @@ public class Main {
 				else if (i == 0)
 				{
 					colourSensor.setFloodlight(Color.WHITE);
+					
 					upMotor.stop();
+					currentColour = 0;
+					lastColour = 0;
 				}
 
 			}
@@ -222,6 +269,8 @@ public class Main {
 		else
 		{
 			colourSensor.setFloodlight(Color.WHITE);
+			currentColour = 0;
+			lastColour = 0;
 		}
 		
 		LCD.refresh();
@@ -251,24 +300,54 @@ public class Main {
 	
 	static void moveJaw()
 	{
-		Delay.msDelay(1000);
-		jawMotor.rotateTo(0); // Down
-		jawMotor.rotateTo(-100, true);
+		//Delay.msDelay(100);
+		jawMotor.rotateTo(90,false); // Down
+		jawMotor.rotateTo(-30, false);
 	}
 	
+	static void sockets()
+	{
+		try {
+			s = new Socket(IP,PORT);
+			s.setTcpNoDelay(true);
+		} catch (UnknownHostException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+	}
+	
+//	public static void sendColor(int colour)
+//	{
+//		lastColour = colour;
+//		
+//		try
+//		   {
+//			
+//			s.getOutputStream().write(colour);
+//			s.getOutputStream().flush();
+//			
+//			Delay.msDelay(1000);
+//			
+//			s.getOutputStream().write(0);
+//			s.getOutputStream().flush();
+//			 
+//		   } catch (IOException e)
+//		   {
+//		       // TODO Auto-generated catch block
+//			   e.printStackTrace();
+//		   }
+//	}
+	
 }
-		
-//		try {
-//			s = new Socket(IP,PORT);
-//			s.setTcpNoDelay(true);
-//		} catch (UnknownHostException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		} catch (IOException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
-		
+	
+
+
+
+
 //		timer = new Timer(update_speed, new TimerListener() {
 //			
 //			@Override
